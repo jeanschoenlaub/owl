@@ -759,6 +759,9 @@
               obj = "Exception: " + e.toString();
             }
             break;
+          case "signal":
+            obj = obj[key.value]();
+            break;
           case "prototype getter":
           case "set entry":
           case "map entry":
@@ -807,6 +810,14 @@
         return this.getObject(componentNode, path.slice(index));
       }
       return "Exception: component not found";
+    }
+
+    isSignal(obj) {
+      if (typeof obj !== "function") return false;
+      for (const sym of Object.getOwnPropertySymbols(obj)) {
+        if (sym.toString() === "Symbol(Atom)" && obj[sym]?.type === "signal") return true;
+      }
+      return false;
     }
 
     // Returns a modified version of an object node that has compatible format with the devtools ObjectTreeElement component
@@ -963,14 +974,15 @@
           path.shift();
         }
         // the value is either "props" or "env" here
-        if (objType !== "instance" && objType !== "hook") {
-          obj = oldTree[path[0].value].children;
-          path.shift();
-          // there is nothing otherwise but extension side it is in instance
-        } else if (objType === "instance") {
+        if (objType === "instance") {
           obj = oldTree.instance.children;
-        } else {
+        } else if (objType === "signal") {
+          obj = oldTree.signals.children;
+        } else if (objType === "hook") {
           obj = oldTree.hooks.children;
+          path.shift();
+        } else {
+          obj = oldTree[path[0].value].children;
           path.shift();
         }
         // the first element here is directly in an array instead of a children array
@@ -1414,6 +1426,73 @@
       // Load subscriptions of the component
       const appVersion = this.getAppVersion([...this.apps][path[0]]);
       const isOwl3 = appVersion.startsWith("3");
+
+      // Load signals of the component (owl v3 only)
+      component.signals = { toggled: oldTree ? (oldTree.signals?.toggled ?? true) : true, children: [] };
+      if (isOwl3 && !isApp) {
+        Reflect.ownKeys(instance)
+          .sort(compareKeys)
+          .forEach((key) => {
+            if (["env", "props"].includes(key)) return;
+            const val = instance[key];
+            if (!this.isSignal(val)) return;
+            const childIndex = component.signals.children.length;
+            const signalPath = [...instancePath, { type: "signal", value: key, childIndex }];
+            const signalValue = this.toRaw(val());
+            let contentType, hasChildren;
+            if (signalValue === null || signalValue === undefined) {
+              contentType = signalValue === null ? "object" : "undefined";
+              hasChildren = false;
+            } else if (signalValue instanceof Map) {
+              contentType = "map";
+              hasChildren = true;
+            } else if (signalValue instanceof Set) {
+              contentType = "set";
+              hasChildren = true;
+            } else if (Array.isArray(signalValue)) {
+              contentType = "array";
+              hasChildren = signalValue.length > 0;
+            } else if (typeof signalValue === "function") {
+              contentType = "function";
+              hasChildren = true;
+            } else if (typeof signalValue === "object") {
+              contentType = "object";
+              hasChildren =
+                Object.keys(signalValue).length > 0 ||
+                Object.getOwnPropertySymbols(signalValue).length > 0;
+            } else {
+              contentType = typeof signalValue;
+              hasChildren = false;
+            }
+            const oldSignalBranch = oldTree?.signals?.children[childIndex];
+            const signalNode = {
+              name: typeof key === "symbol" ? key.toString() : key,
+              depth: 0,
+              toggled: oldSignalBranch?.toggled ?? false,
+              objectType: "signal",
+              contentType,
+              content:
+                signalValue == null
+                  ? signalValue === null
+                    ? "null"
+                    : "undefined"
+                  : this.serializer.serializeContent(signalValue, contentType),
+              hasChildren,
+              path: signalPath,
+              children: [],
+            };
+            if (signalNode.toggled) {
+              signalNode.children = this.loadObjectChildren(
+                signalPath,
+                0,
+                contentType,
+                "signal",
+                oldTree
+              );
+            }
+            component.signals.children.push(signalNode);
+          });
+      }
       if (isApp || isOwl3) {
         // OWL 3 does not have node.subscriptions
         component.subscriptions = {

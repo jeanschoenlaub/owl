@@ -61,6 +61,19 @@
           <ObjectTreeElement object="prop"/>
         </t>
       </div>
+      <div t-if="this.components.activeComponent().signals?.children.length > 0" id="signals" class="details-panel ps-2 py-1">
+        <div class="d-flex mb-2">
+          <div class="w-100" t-on-click.stop="(ev) => this.toggleCategory(ev, 'signals')">
+            <i class="fa mx-1 pointer-icon"
+              t-att-class="{'fa-caret-right': !this.components.activeComponent().signals.toggled, 'fa-caret-down': this.components.activeComponent().signals.toggled}"
+            /><b>signals</b>
+          </div>
+        </div>
+        <t t-if="this.components.activeComponent().signals.toggled"
+           t-foreach="this.components.activeComponent().signals.children" t-as="sig" t-key="sig_index">
+          <ObjectTreeElement object="sig"/>
+        </t>
+      </div>
       <div t-if="this.components.activeComponent().subscriptions.children.length > 0" id="subscriptions" class="details-panel ps-2 py-1">
         <div class="d-flex">
           <div title="Shows all the targets that will trigger a re-render of the component when one of its associated keys is modified" class="w-100 text-truncate" t-on-click.stop="(ev) => this.toggleCategory(ev, 'subscriptions')">
