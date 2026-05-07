@@ -61,17 +61,17 @@
           <ObjectTreeElement object="prop"/>
         </t>
       </div>
-      <div t-if="this.components.activeComponent().signals?.children.length > 0" id="signals" class="details-panel ps-2 py-1">
+      <div t-if="this.components.activeComponent().reactiveValues?.children.length > 0" id="reactiveValues" class="details-panel ps-2 py-1">
         <div class="d-flex mb-2">
-          <div class="w-100" t-on-click.stop="(ev) => this.toggleCategory(ev, 'signals')">
+          <div class="w-100" t-on-click.stop="(ev) => this.toggleCategory(ev, 'reactiveValues')">
             <i class="fa mx-1 pointer-icon"
-              t-att-class="{'fa-caret-right': !this.components.activeComponent().signals.toggled, 'fa-caret-down': this.components.activeComponent().signals.toggled}"
-            /><b>signals</b>
+              t-att-class="{'fa-caret-right': !this.components.activeComponent().reactiveValues.toggled, 'fa-caret-down': this.components.activeComponent().reactiveValues.toggled}"
+            /><b>reactive values</b>
           </div>
         </div>
-        <t t-if="this.components.activeComponent().signals.toggled"
-           t-foreach="this.components.activeComponent().signals.children" t-as="sig" t-key="sig_index">
-          <ObjectTreeElement object="sig"/>
+        <t t-if="this.components.activeComponent().reactiveValues.toggled"
+           t-foreach="this.components.activeComponent().reactiveValues.children" t-as="rv" t-key="rv_index">
+          <ObjectTreeElement object="rv"/>
         </t>
       </div>
       <div t-if="this.components.activeComponent().subscriptions.children.length > 0" id="subscriptions" class="details-panel ps-2 py-1">

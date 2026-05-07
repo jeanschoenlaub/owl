@@ -760,7 +760,11 @@
             }
             break;
           case "signal":
+          case "computed":
             obj = obj[key.value]();
+            break;
+          case "proxy":
+            obj = obj[key.value];
             break;
           case "prototype getter":
           case "set entry":
@@ -818,6 +822,19 @@
         if (sym.toString() === "Symbol(Atom)" && obj[sym]?.type === "signal") return true;
       }
       return false;
+    }
+
+    isComputed(obj) {
+      if (typeof obj !== "function") return false;
+      for (const sym of Object.getOwnPropertySymbols(obj)) {
+        if (sym.toString() === "Symbol(Atom)" && obj[sym] && obj[sym].type !== "signal") return true;
+      }
+      return false;
+    }
+
+    isReactiveProxy(obj) {
+      if (typeof obj !== "object" || obj === null) return false;
+      return this.toRaw(obj) !== obj;
     }
 
     // Returns a modified version of an object node that has compatible format with the devtools ObjectTreeElement component
@@ -976,8 +993,8 @@
         // the value is either "props" or "env" here
         if (objType === "instance") {
           obj = oldTree.instance.children;
-        } else if (objType === "signal") {
-          obj = oldTree.signals.children;
+        } else if (objType === "reactiveValue") {
+          obj = oldTree.reactiveValues.children;
         } else if (objType === "hook") {
           obj = oldTree.hooks.children;
           path.shift();
@@ -1427,70 +1444,84 @@
       const appVersion = this.getAppVersion([...this.apps][path[0]]);
       const isOwl3 = appVersion.startsWith("3");
 
-      // Load signals of the component (owl v3 only)
-      component.signals = { toggled: oldTree ? (oldTree.signals?.toggled ?? true) : true, children: [] };
+      // Load reactive values of the component (owl v3 only): signals, computed, and reactive proxies
+      component.reactiveValues = {
+        toggled: oldTree ? (oldTree.reactiveValues?.toggled ?? true) : true,
+        children: [],
+      };
       if (isOwl3 && !isApp) {
         Reflect.ownKeys(instance)
           .sort(compareKeys)
           .forEach((key) => {
             if (["env", "props"].includes(key)) return;
             const val = instance[key];
-            if (!this.isSignal(val)) return;
-            const childIndex = component.signals.children.length;
-            const signalPath = [...instancePath, { type: "signal", value: key, childIndex }];
-            const signalValue = this.toRaw(val());
+            let pathType, reactiveValue;
+            if (this.isSignal(val)) {
+              pathType = "signal";
+              reactiveValue = this.toRaw(val());
+            } else if (this.isComputed(val)) {
+              pathType = "computed";
+              reactiveValue = this.toRaw(val());
+            } else if (this.isReactiveProxy(val)) {
+              pathType = "proxy";
+              reactiveValue = this.toRaw(val);
+            } else {
+              return;
+            }
+            const childIndex = component.reactiveValues.children.length;
+            const reactivePath = [...instancePath, { type: pathType, value: key, childIndex }];
             let contentType, hasChildren;
-            if (signalValue === null || signalValue === undefined) {
-              contentType = signalValue === null ? "object" : "undefined";
+            if (reactiveValue === null || reactiveValue === undefined) {
+              contentType = reactiveValue === null ? "object" : "undefined";
               hasChildren = false;
-            } else if (signalValue instanceof Map) {
+            } else if (reactiveValue instanceof Map) {
               contentType = "map";
               hasChildren = true;
-            } else if (signalValue instanceof Set) {
+            } else if (reactiveValue instanceof Set) {
               contentType = "set";
               hasChildren = true;
-            } else if (Array.isArray(signalValue)) {
+            } else if (Array.isArray(reactiveValue)) {
               contentType = "array";
-              hasChildren = signalValue.length > 0;
-            } else if (typeof signalValue === "function") {
+              hasChildren = reactiveValue.length > 0;
+            } else if (typeof reactiveValue === "function") {
               contentType = "function";
               hasChildren = true;
-            } else if (typeof signalValue === "object") {
+            } else if (typeof reactiveValue === "object") {
               contentType = "object";
               hasChildren =
-                Object.keys(signalValue).length > 0 ||
-                Object.getOwnPropertySymbols(signalValue).length > 0;
+                Object.keys(reactiveValue).length > 0 ||
+                Object.getOwnPropertySymbols(reactiveValue).length > 0;
             } else {
-              contentType = typeof signalValue;
+              contentType = typeof reactiveValue;
               hasChildren = false;
             }
-            const oldSignalBranch = oldTree?.signals?.children[childIndex];
-            const signalNode = {
-              name: typeof key === "symbol" ? key.toString() : key,
+            const oldBranch = oldTree?.reactiveValues?.children[childIndex];
+            const reactiveNode = {
+              name: `${typeof key === "symbol" ? key.toString() : key} (${pathType[0].toUpperCase() + pathType.slice(1)})`,
               depth: 0,
-              toggled: oldSignalBranch?.toggled ?? false,
-              objectType: "signal",
+              toggled: oldBranch?.toggled ?? false,
+              objectType: "reactiveValue",
               contentType,
               content:
-                signalValue == null
-                  ? signalValue === null
+                reactiveValue == null
+                  ? reactiveValue === null
                     ? "null"
                     : "undefined"
-                  : this.serializer.serializeContent(signalValue, contentType),
+                  : this.serializer.serializeContent(reactiveValue, contentType),
               hasChildren,
-              path: signalPath,
+              path: reactivePath,
               children: [],
             };
-            if (signalNode.toggled) {
-              signalNode.children = this.loadObjectChildren(
-                signalPath,
+            if (reactiveNode.toggled) {
+              reactiveNode.children = this.loadObjectChildren(
+                reactivePath,
                 0,
                 contentType,
-                "signal",
+                "reactiveValue",
                 oldTree
               );
             }
-            component.signals.children.push(signalNode);
+            component.reactiveValues.children.push(reactiveNode);
           });
       }
       if (isApp || isOwl3) {
