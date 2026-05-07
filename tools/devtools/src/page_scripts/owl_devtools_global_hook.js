@@ -986,8 +986,8 @@
         ).target;
         path = path.slice(3);
       } else {
-        // Everything here is in component if it is not an app so remove this key of the path in the former case
-        if (objPathIndex > 1) {
+        // OWL 2 non-app paths have a "component" intermediate key to skip; OWL 3 props paths do not.
+        if (objPathIndex > 1 && path[0]?.value === "component") {
           path.shift();
         }
         // the value is either "props" or "env" here
@@ -997,6 +997,11 @@
           obj = oldTree.reactiveValues.children;
         } else if (objType === "hook") {
           obj = oldTree.hooks.children;
+          path.shift();
+        } else if (objType === "props") {
+          // Always use oldTree.props: OWL 3 may use "defaultProps" as the path key but all
+          // props are stored together under oldTree.props in the serialized tree.
+          obj = oldTree.props.children;
           path.shift();
         } else {
           obj = oldTree[path[0].value].children;
@@ -1288,26 +1293,32 @@
         component.version = this.getAppVersion(node);
       }
       // Load props of the component
-      const props = isApp ? node.props : node.component.props;
       component.props = { toggled: oldTree ? oldTree.props.toggled : true, children: [] };
       component.name = isApp
         ? node?.name
           ? `App (${node.name})`
           : "App " + (Number(path[0]) + 1)
         : node.component.constructor.name;
-      const propsPath = isApp
-        ? [...path, { type: "item", value: "props" }]
-        : [...path, { type: "item", value: "component" }, { type: "item", value: "props" }];
-      Reflect.ownKeys(props || {})
-        .sort(compareKeys)
-        .forEach((key) => {
+      const appVersion = this.getAppVersion([...this.apps][path[0]]);
+      const isOwl3 = appVersion.startsWith("3");
+      if (isOwl3) {
+        // In Owl 3, component.props uses getters that wrap node.props/defaultProps. Read the raw
+        // values directly from the ComponentNode so they display as plain values, not functions.
+        const rawProps = node.props || {};
+        const defaults = node.defaultProps || {};
+        const allPropKeys = [...new Set([...Reflect.ownKeys(rawProps), ...Reflect.ownKeys(defaults)])].sort(compareKeys);
+        allPropKeys.forEach((key) => {
+          const inRaw = key in rawProps && rawProps[key] !== undefined;
+          const parentObj = inRaw ? rawProps : defaults;
+          const parentPathKey = inRaw ? "props" : "defaultProps";
+          const keyPropsPath = [...path, { type: "item", value: parentPathKey }];
           let oldBranch = oldTree?.props.children[component.props.children.length];
           const property = this.serializeObjectChild(
-            props,
+            parentObj,
             { type: "item", value: key, childIndex: component.props.children.length },
             0,
             "props",
-            propsPath,
+            keyPropsPath,
             oldBranch,
             oldTree
           );
@@ -1315,6 +1326,29 @@
             component.props.children.push(property);
           }
         });
+      } else {
+        const props = isApp ? node.props : node.component.props;
+        const propsPath = isApp
+          ? [...path, { type: "item", value: "props" }]
+          : [...path, { type: "item", value: "component" }, { type: "item", value: "props" }];
+        Reflect.ownKeys(props || {})
+          .sort(compareKeys)
+          .forEach((key) => {
+            let oldBranch = oldTree?.props.children[component.props.children.length];
+            const property = this.serializeObjectChild(
+              props,
+              { type: "item", value: key, childIndex: component.props.children.length },
+              0,
+              "props",
+              propsPath,
+              oldBranch,
+              oldTree
+            );
+            if (property) {
+              component.props.children.push(property);
+            }
+          });
+      }
       let obj;
       // Load env of the component
       const env = isApp ? node.env : node.component.env;
@@ -1439,10 +1473,6 @@
         oldTree
       );
       component.instance.children.push(instancePrototype);
-
-      // Load subscriptions of the component
-      const appVersion = this.getAppVersion([...this.apps][path[0]]);
-      const isOwl3 = appVersion.startsWith("3");
 
       // Load reactive values of the component (owl v3 only): signals, computed, and reactive proxies
       component.reactiveValues = {
