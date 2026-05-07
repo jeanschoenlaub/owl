@@ -1226,13 +1226,13 @@
         const roots = this.getRoots(app);
         const rootIndex = parseInt(simplifiedPathArray[1], 10);
         node = roots[rootIndex];
-        if (!node || node.name !== simplifiedPathArray[2]) {
+        if (!node || this.getNodeName(node) !== simplifiedPathArray[2]) {
           return null;
         }
         for (let i = 3; i < simplifiedPathArray.length; i += 2) {
           const key = Reflect.ownKeys(node.children)[simplifiedPathArray[i]];
           node = node.children[key];
-          if (node.name !== simplifiedPathArray[i + 1]) {
+          if (this.getNodeName(node) !== simplifiedPathArray[i + 1]) {
             return null;
           }
         }
@@ -1904,8 +1904,14 @@
           result.hasChildren = false;
           result.visible = true;
           const index = path.findIndex((key) => typeof key !== "string");
+          const componentNode = this.getComponentNode(
+            index <= 1 ? [path[0]] : path.slice(0, index)
+          );
+          // For subscription targets the key is always "target"; use targetName for a meaningful name
+          if (result.name === "target" && parent?.keys !== undefined && componentNode) {
+            result.name = this.targetName(parent.target, componentNode);
+          }
           if (index > 1) {
-            const componentNode = this.getComponentNode(path.slice(0, index));
             result.path = [this.getComponentSimplifiedPath(componentNode)].concat(
               path.slice(index)
             );
@@ -1938,14 +1944,19 @@
       path.unshift(index.toString());
       return path;
     }
+    // Returns the display name of a component node, compatible with both owl v2 and v3
+    getNodeName(node) {
+      return node.component?.constructor?.name ?? node.name ?? "";
+    }
+
     // Returns the simplified path of the given component node (using component names and indexes)
     getComponentSimplifiedPath(componentNode) {
-      let path = componentNode.name;
+      let path = this.getNodeName(componentNode);
       if (componentNode.parentKey) {
         while (componentNode.parent) {
           const previousKey = componentNode.parentKey;
           componentNode = componentNode.parent;
-          path = `${componentNode.name}/${Reflect.ownKeys(componentNode.children).indexOf(
+          path = `${this.getNodeName(componentNode)}/${Reflect.ownKeys(componentNode.children).indexOf(
             previousKey
           )}/${path}`;
         }
